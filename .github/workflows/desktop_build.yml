@@ -20,14 +20,28 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Build Windows EXE
+      - name: Build Windows Installer (EXE/MSI)
         run: ./gradlew.bat :desktop:packageExe
 
-      - name: Upload Windows EXE
+      - name: Build Windows Portable App
+        run: ./gradlew.bat :desktop:createDistributable
+
+      - name: Zip Portable App
+        run: |
+          cd desktop/build/compose/binaries/main/app
+          7z a -tzip CloudStreamDesktop-Windows-Portable.zip CloudStreamDesktop
+
+      - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: CloudStreamDesktop-Windows
+          name: CloudStreamDesktop-Windows-Installer
           path: desktop/build/compose/binaries/main/exe/*.exe
+
+      - name: Upload Windows Portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloudStreamDesktop-Windows-Portable
+          path: desktop/build/compose/binaries/main/app/CloudStreamDesktop-Windows-Portable.zip
 
   build-linux:
     runs-on: ubuntu-latest
