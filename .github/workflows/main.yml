@@ -1,0 +1,135 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Windows EXE
+    runs-on: windows-2025
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # windows-2025 already contains WiX 3.14, but it is not on PATH. Setting
+      # WIX_PATH makes the Compose plugin use it and completely skips downloadWix.
+      - name: Configure preinstalled WiX Toolset 3
+        shell: pwsh
+        run: |
+          $candidates = @()
+
+          if ($env:WIX) {
+            $candidates += $env:WIX
+            $candidates += (Join-Path $env:WIX 'bin')
+          }
+
+          $programFilesX86 = [Environment]::GetFolderPath('ProgramFilesX86')
+          if ($programFilesX86) {
+            $candidates += (Join-Path $programFilesX86 'WiX Toolset v3.14\bin')
+            $discoveredWix = Get-ChildItem -Path $programFilesX86 -Directory -Filter 'WiX Toolset v3.*' -ErrorAction SilentlyContinue |
+              Sort-Object Name -Descending |
+              ForEach-Object { Join-Path $_.FullName 'bin' }
+            $candidates += $discoveredWix
+          }
+
+          $wixPath = $candidates |
+            Where-Object {
+              $_ -and
+              (Test-Path (Join-Path $_ 'candle.exe')) -and
+              (Test-Path (Join-Path $_ 'light.exe')) -and
+              (Test-Path (Join-Path $_ 'WixUtilExtension.dll'))
+            } |
+            Select-Object -First 1
+
+          if (-not $wixPath) {
+            throw 'The Windows runner does not contain a usable WiX Toolset 3 installation.'
+          }
+
+          "WIX_PATH=$wixPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$wixPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Using WiX from: $wixPath"
+          & (Join-Path $wixPath 'candle.exe') '-?'
+          if ($LASTEXITCODE -ne 0) { throw 'candle.exe validation failed' }
+
+      - name: Run Windows tests
+        shell: pwsh
+        run: |
+          .\gradlew.bat check --stacktrace
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify Gradle will not download WiX
+        shell: pwsh
+        run: |
+          $taskPlan = .\gradlew.bat :desktop:packageExe --dry-run --console=plain 2>&1
+          $taskPlan | ForEach-Object { Write-Host $_ }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($taskPlan -match 'downloadWix') {
+            throw 'downloadWix is still present in the task graph; WIX_PATH was not applied.'
+          }
+
+      - name: Build Windows installer and portable app
+        shell: pwsh
+        run: |
+          .\gradlew.bat :desktop:packageExe :desktop:createDistributable --stacktrace
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify Windows outputs
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'desktop/build/compose/binaries/main/exe' -Filter '*.exe' -File
+          if (-not $installer) { throw 'Windows installer EXE was not generated.' }
+
+          $portable = 'desktop/build/compose/binaries/main/app/CloudStreamDesktop'
+          if (-not (Test-Path $portable -PathType Container)) {
+            throw 'Portable Windows application was not generated.'
+          }
+
+          Write-Host 'Installer:'
+          $installer | ForEach-Object { Write-Host "  $($_.FullName) ($($_.Length) bytes)" }
+          Write-Host "Portable directory: $portable"
+
+      - name: Zip portable Windows app
+        shell: pwsh
+        run: |
+          Push-Location 'desktop/build/compose/binaries/main/app'
+          7z a -tzip 'CloudStreamDesktop-Windows-Portable.zip' 'CloudStreamDesktop'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+
+      - name: Upload Windows installer EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloudStreamDesktop-Windows-Installer
+          path: desktop/build/compose/binaries/main/exe/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload portable Windows ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloudStreamDesktop-Windows-Portable
+          path: desktop/build/compose/binaries/main/app/CloudStreamDesktop-Windows-Portable.zip
+          if-no-files-found: error
+          retention-days: 14
