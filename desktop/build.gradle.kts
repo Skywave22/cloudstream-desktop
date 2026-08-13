@@ -64,12 +64,8 @@ compose.desktop {
         mainClass = "com.cloudstream.desktop.MainKt"
 
         nativeDistributions {
-            targetFormats(
-                TargetFormat.Dmg,
-                TargetFormat.Msi,
-                TargetFormat.Exe,
-                TargetFormat.Deb
-            )
+            // Windows-only for now. The GitHub Actions workflow builds this EXE.
+            targetFormats(TargetFormat.Exe)
             packageName = "CloudStreamDesktop"
             packageVersion = "1.0.0"
             description = "CloudStream for Desktop"
@@ -81,31 +77,6 @@ compose.desktop {
                 dirChooser = true
                 perUserInstall = true
             }
-
-            linux {
-                menuGroup = "CloudStream"
-                debMaintainer = "Skywave22@users.noreply.github.com"
-            }
-
-            macOS {
-                bundleID = "com.cloudstream.desktop"
-            }
         }
     }
-}
-
-// jpackage cannot inspect JavaFX native libraries embedded inside dependency JARs.
-// Patch the generated control metadata so a fresh Linux system installs GTK/ALSA.
-val patchDebDependencies by tasks.registering(Exec::class) {
-    group = "distribution"
-    description = "Adds JavaFX native dependencies to the generated Debian package"
-    val script = rootProject.layout.projectDirectory.file("scripts/patch-deb-dependencies.sh")
-    val debDirectory = layout.buildDirectory.dir("compose/binaries/main/deb")
-    inputs.file(script)
-    commandLine("bash", script.asFile.absolutePath, debDirectory.get().asFile.absolutePath)
-    onlyIf("Linux host") { System.getProperty("os.name").startsWith("Linux", ignoreCase = true) }
-}
-
-tasks.matching { it.name == "packageDeb" }.configureEach {
-    finalizedBy(patchDebDependencies)
 }
