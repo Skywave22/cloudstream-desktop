@@ -26,9 +26,9 @@ dependencies {
         implementation("org.openjfx:javafx-$mod:$javafxVersion:$javafxPlatform")
     }
 
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-javafx:1.8.1")
+    // Do not add coroutines-javafx here: it installs a JavaFX Dispatchers.Main,
+    // while Compose Desktop owns its lifecycle on the AWT event thread.
+    implementation(libs.kotlinx.coroutines.core)
 
     // Jackson (matches library)
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
@@ -44,6 +44,8 @@ dependencies {
 
     // Logging
     implementation("org.slf4j:slf4j-simple:2.0.16")
+
+    testImplementation(kotlin("test"))
 }
 
 kotlin {
@@ -82,6 +84,7 @@ compose.desktop {
 
             linux {
                 menuGroup = "CloudStream"
+                debMaintainer = "Skywave22@users.noreply.github.com"
             }
 
             macOS {
@@ -89,4 +92,20 @@ compose.desktop {
             }
         }
     }
+}
+
+// jpackage cannot inspect JavaFX native libraries embedded inside dependency JARs.
+// Patch the generated control metadata so a fresh Linux system installs GTK/ALSA.
+val patchDebDependencies by tasks.registering(Exec::class) {
+    group = "distribution"
+    description = "Adds JavaFX native dependencies to the generated Debian package"
+    val script = rootProject.layout.projectDirectory.file("scripts/patch-deb-dependencies.sh")
+    val debDirectory = layout.buildDirectory.dir("compose/binaries/main/deb")
+    inputs.file(script)
+    commandLine("bash", script.asFile.absolutePath, debDirectory.get().asFile.absolutePath)
+    onlyIf("Linux host") { System.getProperty("os.name").startsWith("Linux", ignoreCase = true) }
+}
+
+tasks.matching { it.name == "packageDeb" }.configureEach {
+    finalizedBy(patchDebDependencies)
 }

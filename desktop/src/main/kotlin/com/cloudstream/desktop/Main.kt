@@ -1,36 +1,46 @@
 package com.cloudstream.desktop
 
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.application
 import com.cloudstream.desktop.plugins.DesktopPluginLoader
 import com.cloudstream.desktop.ui.App
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.metaproviders.TmdbProvider
+import com.lagradost.cloudstream3.network.WebViewResolver
 import javafx.application.Platform
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.application
 import java.io.File
 
-fun main() {
-    try {
-        Platform.startup { }
-    } catch (e: IllegalStateException) {
-        // Already started
-    }
+private class DesktopTmdbProvider : TmdbProvider() {
+    // The base TmdbProvider expects a site-specific subclass by default. Desktop uses it
+    // directly, so provide its identity and return metadata instead of null from load().
+    override var name: String = "TMDB"
+    override var mainUrl: String = "https://www.themoviedb.org"
+    override val useMetaLoadResponse: Boolean = true
+}
 
-    // Register built-in meta providers available on JVM
-    val tmdb = TmdbProvider()
+fun main() {
+    WebViewResolver.ensureJavaFx()
+    Platform.setImplicitExit(false)
+
+    val tmdb = DesktopTmdbProvider()
     APIHolder.allProviders.add(tmdb)
     APIHolder.addPluginMapping(tmdb)
 
-    // Load any desktop-compatible plugins from ~/.cloudstream/plugins
     val pluginsDir = File(System.getProperty("user.home"), ".cloudstream/plugins")
     DesktopPluginLoader.loadPlugins(pluginsDir)
+    APIHolder.initAll()
 
-    application {
-        Window(
-            onCloseRequest = ::exitApplication,
-            title = "CloudStream Desktop",
-        ) {
-            App()
+    try {
+        application {
+            Window(
+                onCloseRequest = ::exitApplication,
+                title = "CloudStream Desktop",
+            ) {
+                App()
+            }
         }
+    } finally {
+        DesktopPluginLoader.unloadAll()
+        Platform.exit()
     }
 }

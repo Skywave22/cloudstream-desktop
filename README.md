@@ -1,53 +1,116 @@
 # CloudStream Desktop
 
-A standalone desktop port of **CloudStream** for Windows, Linux, and macOS. Built with **Compose for Desktop** and reusing the official Kotlin Multiplatform library.
+A standalone CloudStream port for Windows, Linux, and macOS, built with Compose for Desktop and the CloudStream Kotlin library.
 
-## What Works
-- **Built-in providers** (TMDB, Trakt, etc.) run natively on JVM.
-- **Built-in extractors** (HLS, MP4, various hosters) work out of the box.
-- **Desktop plugin loader** — drop `.jar` or `.cs3` plugins into `~/.cloudstream/plugins` and they load on startup.
-- **JavaFX WebView** — replaces Android `WebViewResolver` for scraping flows that need a browser engine.
-- **Embedded HTML5 player** — plays extracted stream URLs using JavaFX WebView.
+## Features
 
-## What Needs Work
-- Extensions that rely on **heavy Cloudflare bypass** or **Android-specific APIs** may fail (JavaFX WebView is not a full Chromium engine).
-- The UI is a scaffold. Full feature parity (downloads, settings, subtitles, Chromecast) requires more work.
+- TMDB home, search, and metadata pages.
+- Concurrent search across installed providers.
+- Movie, live-stream, series, and anime episode selection.
+- Provider link extraction with quality/source selection and timeouts.
+- Built-in CloudStream extractors on the JVM.
+- JVM plugin loading from `~/.cloudstream/plugins` using `manifest.json` or `@CloudstreamPlugin` discovery.
+- JavaFX WebView support for scraping flows and an embedded HTML5 player.
+- Native Windows, Linux, and macOS packaging.
 
-## Build from Source
+## Current limitations
+
+- The regular Android `.cs3` format contains `classes.dex` and cannot execute on a desktop JVM. Install a JVM `.jar` build instead. A `.cs3` archive is accepted only when it contains JVM `.class` files.
+- Extensions that import Android APIs are not desktop-compatible.
+- JavaFX exposes no full WebKit request-interception API. The resolver detects top-level navigation and Resource Timing entries, so advanced Cloudflare or browser-challenge flows may still fail.
+- JavaFX media support depends on the operating system's codecs. DASH, torrents, and magnet links are not supported by the embedded player. HLS support varies by JavaFX/platform.
+- Streams that require custom `Referer` or authorization headers may be blocked by host CORS rules because JavaFX WebView cannot guarantee those headers for media requests.
+- Downloads, settings, subtitle rendering, and casting are not implemented yet.
+
+## Build from source
 
 ### Prerequisites
+
 - JDK 17 or later
+- The Gradle wrapper included in this repository
+- Linux `.deb` packaging only: `fakeroot` and `dpkg-dev`
+- Linux portable runtime: GTK 3 and ALSA (`libgtk-3-0`/`libgtk-3-0t64` and `libasound2`/`libasound2t64`)
 
-### Windows EXE
-```batch
-gradlew.bat :desktop:packageExe
-```
-Output: `desktop\build\compose\binaries\main\exe\`
+On current Debian/Ubuntu build hosts:
 
-### Linux / Debian
 ```bash
-./gradlew :desktop:packageDeb
+sudo apt-get install fakeroot dpkg-dev
 ```
-Output: `desktop/build/compose/binaries/main/deb/`
+
+The generated `.deb` declares the GTK/ALSA alternatives automatically.
+
+Run verification first:
+
+```bash
+./gradlew clean check
+```
 
 ### Run without packaging
+
 ```bash
 ./gradlew :desktop:run
 ```
 
-## GitHub Actions (Automatic Builds)
-Push this repo to GitHub and the workflow in `.github/workflows/desktop_build.yml` will automatically build:
-- **Windows EXE** (download from Actions artifacts)
-- **Linux DEB** (download from Actions artifacts)
-- **Linux Portable App-Image** (download from Actions artifacts)
+### Windows
 
-## Plugin Loading on Desktop
-Place any desktop-compatible `.jar` or `.cs3` plugin files into:
+```batch
+gradlew.bat :desktop:packageExe
+```
+
+Output: `desktop\build\compose\binaries\main\exe\`
+
+### Linux
+
+```bash
+./gradlew :desktop:packageDeb
+```
+
+Output: `desktop/build/compose/binaries/main/deb/`
+
+For a portable application directory:
+
+```bash
+./gradlew :desktop:createDistributable
+```
+
+Output: `desktop/build/compose/binaries/main/app/CloudStreamDesktop/`
+
+### macOS
+
+```bash
+./gradlew :desktop:packageDmg
+```
+
+Output: `desktop/build/compose/binaries/main/dmg/`
+
+Native packages must be built on their target operating system.
+
+## Automatic builds
+
+`.github/workflows/desktop_build.yml` runs tests and produces:
+
+- Windows EXE installer and portable ZIP
+- Linux Debian package and portable `.tar.gz`
+- macOS DMG and portable ZIP
+
+Download the generated files from a GitHub Actions run's **Artifacts** section.
+
+## Desktop plugins
+
+Place desktop-compatible plugin archives in:
+
 - Windows: `%USERPROFILE%\.cloudstream\plugins\`
 - Linux/macOS: `~/.cloudstream/plugins/`
 
-Plugins must be pure Kotlin (no Android-only imports) to load on the JVM.
+A supported plugin must contain JVM `.class` files, extend `BasePlugin`, and either:
 
-## Architecture
-- `library/` — Core engine (extractors, plugins, networking) from the official CloudStream library, compiled for JVM only.
-- `desktop/` — Compose for Desktop UI, JavaFX WebView resolver, plugin loader, and player.
+1. include `manifest.json` with `pluginClassName`, or
+2. annotate its plugin entry class with `@CloudstreamPlugin`.
+
+The loader reports malformed archives, incompatible DEX-only `.cs3` files, missing entry classes, and plugin startup failures instead of crashing the application.
+
+## Project layout
+
+- `library/` — CloudStream core models, extractors, networking, and JVM platform implementations.
+- `desktop/` — Compose UI, navigation, plugin loader, link-resolution flow, and JavaFX player.
+- `desktop/src/test/` — playback, HTML-safety, and plugin compatibility regression tests.
